@@ -152,6 +152,17 @@ Defined.
 
 Print transpose_if_lt.
 
+
+Definition transpose_if_lt_Sn_prop : forall (x y : nat) (l : list nat)
+                                            (n : BNat (pred (length (y::l)))), Prop.
+  intros.
+  exact (transpose_if_lt (x::y::l) (BSucc n) = x :: (transpose_if_lt (y::l) n)).
+Defined.
+
+Lemma transpose_if_lt_Sn : forall x y l n, @transpose_if_lt_Sn_prop x y l n.
+  unfold transpose_if_lt_Sn_prop.
+  reflexivity.
+Qed.
 (* 
 Definition transpose_if_lt (l : list nat) (i:BNat (pred (length l))) : list nat.
   destruct i as [i Hi].
@@ -170,12 +181,16 @@ Defined.
 
 Print transpose_if_lt.
 
-*)
+ *)
 
-Lemma transpose_if_lt_perm (l : list nat) (i:BNat (pred (length l))) :
-  Permutation l (transpose_if_lt l i).
+Lemma transpose_if_lt_ind : forall (P : forall (l : list nat) (i : BNat (pred (length l))), Prop)
+                            (H0 : (forall (x y : nat) (l : list nat), P (x::y::l) BZero))
+                            (HSn : (forall (x y : nat) (l : list nat) (n : BNat (pred (length (y::l)))),
+                                     P (y :: l) n -> P (x::y::l) (BSucc n))),
+    forall (l : list nat) (i : BNat (pred (length l))), P l i.
 Proof.
-  refine (let fix F l i {struct i} : Permutation l (transpose_if_lt l i) := _ in F l i); clear l0 i0.
+  intros.
+  refine (let fix F l i {struct i} : P l i := _ in F l i); clear l0 i0.
   generalize i; clear i.
   refine (match l with | [] => _ | [x] => _ | (x::y::xs) => _ end).
   - simpl. intros i. exfalso. apply (NoBNatZero i).
@@ -185,24 +200,37 @@ Proof.
     refine (match i as m in BNat n
                   return (forall pf : n = pred (length (x :: y :: xs)),
                              eq_rect n BNat m (pred (length (x :: y :: xs))) pf = i ->
-                             Permutation (x :: y :: xs) (transpose_if_lt (x :: y :: xs) i)
+                             P (x :: y :: xs) i
                   )
             with
             | BZero n' => _
             | BSucc n' i' => _
             end eq_refl eq_refl).
-    + intros pf H. Check eq_nat_dec.
-      inversion pf. subst n'.
-    
+    + intros pf H'. Check eq_nat_dec.
+      inversion pf. subst.
+      rewrite <- Eqdep_dec.eq_rect_eq_dec by apply eq_nat_dec.
+      simpl.
+      apply H0.
+    + intros pf H. inversion pf. subst. rewrite <- Eqdep_dec.eq_rect_eq_dec by apply eq_nat_dec.
+      apply HSn. apply F.
+Qed.
+  
 
-    
-    dependent destruction i.
-    refine ((match i in BNat (S n) return (
-                    match (S n) with | 0 => IDProp | S n' => n = (length xs) -> _ end)
-             with
-             | BZero n' =>  fun Heq => _
-             | BSucc n' i' => fun Heq => _
-             end) eq_refl).
+Lemma transpose_if_lt_perm (l : list nat) (i:BNat (pred (length l))) :
+  Permutation l (transpose_if_lt l i).
+Proof.
+  apply (transpose_if_lt_ind (fun l i => Permutation l (transpose_if_lt l i))).
+  - simpl. intros.
+    destruct (Nat.ltb_spec x y).
+    { constructor. }
+    { apply Permutation_refl. }
+  - intros x y l0 n HInd.
+    rewrite transpose_if_lt_Sn. constructor. apply HInd.
+Qed.
+
+Corollary transpose_if_lt_len l i : length (transpose_if_lt l i) = length l.
+  apply Permutation_length. apply Permutation_sym. apply (transpose_if_lt_perm l i).
+Qed.
     
 (* 
 Inductive transpose_if_ltR : forall (l:list nat) (l':list nat) (i:nat), Prop :=
@@ -228,111 +256,59 @@ Proof.
     destruct (transpose_if_lt (x::y::xs) [[ S i | Hi ]]) eqn:Heq.
     cbn in Heq.
     apply transpose_if_lt_step. *)
-  
-  
 
-
-Print transpose_if_lt.
 
 Definition transpose_braid (bp : braid_perm) (i:BNat (pred N))
   : braid_perm.
-  refine (match bp with | ([[bp' | Hbp]]) => 
-      let bpT := @transpose_if_lt bp' (_ i) in
-      match bpT with | ([[bpT' | HbpT]]) => [[bpT']] end end).
-  Unshelve. crush.
-  - apply Permutation_length in Hbp. rewrite ns_list_len in Hbp.
-    intros [i' Hi']. exists i'. rewrite Hbp. apply Hi'.
+  destruct bp as [bp Hbp].
+  assert (length bp = N).
+  { apply (braid_list_len Hbp). }
+  refine ((match H in (_ = len) return (BNat (pred len) -> braid_perm) with
+           | eq_refl => fun i => [[transpose_if_lt bp i]] end) i).
+  apply Permutation_sym.
+  apply perm_trans with bp.
+  - apply Permutation_sym. assumption.
+  - apply transpose_if_lt_perm.
 Defined.
 
-Fixpoint pi_braid (b : free_braidlike_monoid) : braid_perm.
-  refine ((match b as m return (b = m -> _) with
-    | [] => fun Heq => _
-    | (x::xs) => fun Heq => _
-    end) (eq_refl _)).
-  - refine [[ns_list N]]; trivial.
-  - refine (let xs' := pi_braid xs in (transpose_braid xs' x)).
+Print transpose_braid.
+
+Definition pi_braid (b : free_braidlike_monoid) : braid_perm.
+  refine (let fix pi_braid_sup (b : free_braidlike_monoid) (ini : braid_perm) : braid_perm := _ in
+          pi_braid_sup b [[ns_list N]]).
+  { trivial. }
+  Unshelve.
+  refine (match b with | [] => _ | (x::xs) => _ end).
+  - exact (ini).
+  - exact (pi_braid_sup xs (transpose_braid ini x)).
 Defined.
 
-(* 
-  destruct b as [ | x xs] eqn:Heq.
-  - refine ([[ns_list N]]). { trivial. }
-  - assert (xs' : braid_perm ). { apply (pi_braid xs). }
-    { apply (transpose_braid xs' x). }
-Defined. *)
+Print pi_braid.
 
 Notation "'fbm'" := free_braidlike_monoid.
 
 Notation "x <- e1 ;; e2" := (match e1 with [[x]] => e2 end) (at level 100).
 
+Definition twice_transpose_if_ltRT (l : list nat) (n : BNat (pred (length l))) : Prop.
+  remember (transpose_if_lt l n) as f_once.
+  assert (length l = length f_once).
+  { subst f_once. apply eq_sym. apply transpose_if_lt_len. }
+  refine ((match (eq_sym H) in (_ = len) return (BNat (pred len) -> _) with | eq_refl => _ end) n).
+  intros n'.
+  remember (transpose_if_lt f_once n') as f_twice.
+  exact (f_once = f_twice).
+Defined.
 
+Print twice_transpose_if_ltRT.
 
-(* 
-  (forall Hlist Hnat, P [[ [] | Hlist ]] [[ 0 | Hnat ]]) ->
-  (forall n Hlist Hnat, P [[ [] | Hlist ]] [[ (S n) | Hnat ]]) ->
-  (forall x Hlist Hnat, P [[ [x] | Hlist ]] [[ 0 | Hnat ]]) ->
-  (forall x n Hlist Hnat, P [[ [x] | Hlist ]] [[ (S n) | Hnat ]]) ->
-  (forall x y l Hlist Hnat, P [[ (x::y::l) | Hlist ]] [[ 0 | Hnat ]]) -> 
-  (forall x y l n Hlist Hclist Hnat Hsnat, P [[ (y::l) | Hlist ]] [[ n | Hnat ]] ->
-      P [[ (x::y::l) | Hclist ]] [[ (S n) | Hsnat ]]) ->
-  forall l n Hlist Hnat, P [[ l | Hlist ]] [[ n | Hnat ]]. *)
-
-Lemma transpose_if_lt_ind (P : forall (l:list nat) (i:BNat (pred (length l))), Prop) :
-  (forall n Hnat, P [] [[ n | Hnat ]]) ->
-  (forall x n Hnat, P [x] [[ n | Hnat ]]) ->
-  (forall x xs n Hnat Hsnat, P xs [[ n | Hnat ]] -> P (x::xs) [[ S n | Hsnat ]]) ->
-  (forall x y xs Hnat, P (x::y::xs) [[ 0 | Hnat ]]) ->
-  forall l n Hnat, P l [[ n | Hnat ]].
+Lemma twice_transpose_if_lt l n : twice_transpose_if_ltRT l n.
 Proof.
-  intros Hnil Hsingle Hind Himm.
-  intros l n Hnat.
-  refine ((fix F l n Hnat {struct n} : P l [[ n | Hnat ]] := _) l n Hnat).
-  refine ((match l as m return (l = m -> _) with
-    | [] => _
-    | [x] => _
-    | (x::y::xs) => _
-    end) eq_refl);
-  refine ((match n as m return (n = m -> _) with 
-    | 0 => _
-    | S n' => _
-    end) eq_refl); intros; try solve [clear F; crush].
-  subst l; subst n.
-  refine ((@Hind x (y::xs) n' _ _ ) _).
-  Unshelve.
-  apply F.
-  Guarded.
-  crush.
-Qed.
-  
-
-(* Lemma transpose_braid_ind (P : braid_perm -> BNat (pred N) -> Prop) :
-  (forall Hlist n Hnat, P [[ [] | Hlist ]] [[ n | Hnat ]]) ->
-  (forall x Hlist n Hnat, P [[ [x] | Hlist ]] [[ n | Hnat ]]) ->
-  (forall x xs Hlist Hclist n Hnat Hsnat,
-        P [[ xs | Hlist ]] [[ n | Hnat ]] ->
-        P [[ (x::xs) | Hclist ]] [[ S n | Hsnat ]]) ->
-  (forall x y xs Hlist Hnat, P [[ (x::y::xs) | Hlist ]] [[ 0 | Hnat ]]) ->
-  forall l Hlist n Hnat, P [[ l | Hlist ]] [[ n | Hnat ]].
-Proof.
-  intros Hnil Hsingle Hind Himm.
-  intros l Hlist n Hnat.
-  
-
-  refine ((match l as m return (l = m -> _) with
-    | [] => _
-    | [x] => _
-    | (x::y::xs) => _
-    end) eq_refl);
-  refine ((match n as m return (n = m -> _) with 
-    | 0 => _
-    | S n' => _
-    end) eq_refl); intros; try solve [crush].
-  subst l. subst n.
-  refine ((@Hind x (y::xs) _ _ n' _ _ ) _).
-  Unshelve.
-  Guarded.
-Qed. *)
-    
-  
+  unfold twice_transpose_if_ltRT.
+  generalize l n; clear l n.
+  apply transpose_if_lt_ind.
+  - intros x y l.
+    destruct (Nat.ltb_spec x y).
+    { 
 
 Definition twice_transpose_if_ltRT (l:list nat) (n:BNat (pred (length l))) : Prop.
   refine (let l1 := @transpose_if_lt l n in _).
@@ -348,19 +324,6 @@ Definition twice_transpose_if_ltRT (l:list nat) (n:BNat (pred (length l))) : Pro
 Defined.
 
 Print twice_transpose_if_ltRT.
-
-Definition transpose_if_lt_Sn_prop : forall (x:nat) (l : list nat) (n:nat)
-                                            (HSn : S n < pred (length (x::l))), Prop.
-  intros.
-  refine (let (l1, _) := transpose_if_lt (x::l) [[S n | HSn]] in
-          let (l2, _) := (transpose_if_lt l [[n]]) in
-          l1 = x :: l2).
-  crush.
-Defined.
-
-Lemma transpose_if_lt_Sn : forall x l n HSn, @transpose_if_lt_Sn_prop x l n HSn.
-  unfold transpose_if_lt_Sn_prop.
-  
 
 Lemma twice_transpose_if_lt : forall l n, twice_transpose_if_ltRT l n.
 Proof.
