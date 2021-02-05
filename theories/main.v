@@ -13,11 +13,20 @@ Require Import ProofIrrelevance.
 Require Import ZArith.
 Require Import Coq.Sorting.Permutation.
 Require Import Coq.Lists.List.
+Require Import Coq.Program.Equality.
+
 Import ListNotations.
 
 Hint Rewrite app_nil_r : core.
 
-Definition BNat lim := { n | n < lim }.
+Inductive BNat : nat ->  Set :=
+| BZero : forall {n}, BNat (S n)
+| BSucc : forall {n}, BNat n -> BNat (S n).
+
+Lemma NoBNatZero : forall (b : (BNat 0)), False.
+  intros b.
+  refine (match b with | @BZero n => _ | @BSucc n _ => _ end); crush.
+Qed.
 
 Module Braids.
 
@@ -98,7 +107,7 @@ Qed.
 Print braid_perm.
 Check exist.
 
-Lemma no_empty {T} : forall i, S (S i) <= length(@nil T) -> False.
+(* Lemma no_empty {T} : forall i, S (S i) <= length(@nil T) -> False.
 Proof.
   simpl. intros.
   inversion H.
@@ -110,26 +119,91 @@ Proof.
   inversion H. inversion H1.
 Qed.
 
+Lemma no_emptyT {T} : forall n : BNat (pred (length [] (A:=T))),  False.
+Proof.
+  simpl. intros [n H]. inversion H.
+Qed.
+
+Lemma no_singleT {T} : forall (x:T) (n : BNat (pred (length [x]))), False.
+Proof.
+  simpl. intros _ [n H].
+  inversion H.
+Qed. *)
+
 Notation "[[ x ]]" := (exist _ x _).
 Notation "[[ x | P ]]" := (exist _ x P).
 
-Definition transpose_if_lt (l : list nat) (i:BNat (pred (length l))) : { l' : list nat | Permutation l' l }.
-  refine ((let fix F l i : (S (S i) <= length(l)) -> { l' : list nat | Permutation l' l } :=
-    match l return (S (S i) <= length(l) -> _) with
-    | []  => fun H => match (no_empty H) with end
-    | [x] => fun H => match (no_single H) with end
-    | (x::y::xs) => fun H => (match i as m return (i = m -> _ ) with
-      | (S i') => fun Heq => (match ((F (y::xs) i' _)) with | [[rec | Hind]]  => [[(x::rec)]] end)
-      | 0 => fun Heq => if x <? y then [[(y::x::xs)]] else [[(x::y::xs)]]
-      end) (eq_refl _)
-    end in F l (proj1_sig i) _)). 
-    Unshelve.
-    { destruct i; crush. }
-    { apply perm_swap. }
-    { crush. }
-    { crush. }
-    { apply perm_skip. apply Hind. }
+Fixpoint transpose_if_lt (l : list nat) (i : BNat (pred (length l))) : list nat.
+  generalize i; clear i.
+  refine (match l with | [] => _ | [x] => _ | (x::y::xs) => _ end).
+  - simpl. intros i. exfalso. apply (NoBNatZero i).
+  - simpl. intros i. exfalso. apply (NoBNatZero i).
+  - intros i. simpl in i.
+    refine ((match i in BNat (S n) return (
+                    match (S n) with | 0 => IDProp | S n' => n = (length xs) -> list nat end)
+             with
+             | BZero n' =>  fun Heq => _
+             | BSucc n' i' => fun Heq => _
+             end) eq_refl).
+    + exact (if (x <? y) then y :: x :: xs else x :: y :: xs).
+    + subst n'.
+      exact (x :: (transpose_if_lt (y::xs) i')).
 Defined.
+
+Print transpose_if_lt.
+
+(* 
+Definition transpose_if_lt (l : list nat) (i:BNat (pred (length l))) : list nat.
+  destruct i as [i Hi].
+  refine (let fix F l (i:nat) Hi {struct i}: list nat := _ in F l i Hi); clear l0 i0 Hi0.
+  refine ((match l as l' return (forall i (Hi: i < (pred (length l'))), _) with
+          | [] => _
+          | [x] => _
+          | (x::y::xs) => _
+          end) i Hi); clear l i Hi.
+  - intros n Hn. destruct (no_emptyT [[n | Hn]]).  
+  - intros n Hn. destruct (no_singleT [[n | Hn]]).
+  - intros n Hn. generalize Hn; clear Hn. refine (match n with 0 => _ | S n => _ end).
+    + exact (fun _ => if (x <? y) then y :: x :: xs else x :: y :: xs).
+    + refine (fun Hn => F (y::xs) n _). crush.
+Defined.
+
+Print transpose_if_lt.
+
+*)
+
+Lemma transpose_if_lt_perm (l : list nat) (i:BNat (pred (length l))) :
+  Permutation l (transpose_if_lt l i).
+Proof.
+  refine (let fix F l i {struct i} : Permutation l (transpose_if_lt l i) := _ in F l i); clear l0 i0.
+  generalize i; clear i.
+  refine (match l with | [] => _ | [x] => _ | (x::y::xs) => _ end).
+  - simpl. intros i. exfalso. apply (NoBNatZero i).
+  - simpl. intros i. exfalso. apply (NoBNatZero i).
+  - intros i.
+    Print eq_rect.
+    refine (match i as m in BNat n
+                  return (forall pf : n = pred (length (x :: y :: xs)),
+                             eq_rect n BNat m (pred (length (x :: y :: xs))) pf = i ->
+                             Permutation (x :: y :: xs) (transpose_if_lt (x :: y :: xs) i)
+                  )
+            with
+            | BZero n' => _
+            | BSucc n' i' => _
+            end eq_refl eq_refl).
+    + intros pf H. Check eq_nat_dec.
+      inversion pf. subst n'.
+    
+
+    
+    dependent destruction i.
+    refine ((match i in BNat (S n) return (
+                    match (S n) with | 0 => IDProp | S n' => n = (length xs) -> _ end)
+             with
+             | BZero n' =>  fun Heq => _
+             | BSucc n' i' => fun Heq => _
+             end) eq_refl).
+    
 (* 
 Inductive transpose_if_ltR : forall (l:list nat) (l':list nat) (i:nat), Prop :=
 | transpose_if_lt_step x xs l' n (H: transpose_if_ltR xs l' n) : transpose_if_ltR (x::xs) (x::l') (S n)
@@ -273,12 +347,51 @@ Definition twice_transpose_if_ltRT (l:list nat) (n:BNat (pred (length l))) : Pro
   apply Permutation_length in Hl2. rewrite Hl2. assumption.
 Defined.
 
+Print twice_transpose_if_ltRT.
+
+Definition transpose_if_lt_Sn_prop : forall (x:nat) (l : list nat) (n:nat)
+                                            (HSn : S n < pred (length (x::l))), Prop.
+  intros.
+  refine (let (l1, _) := transpose_if_lt (x::l) [[S n | HSn]] in
+          let (l2, _) := (transpose_if_lt l [[n]]) in
+          l1 = x :: l2).
+  crush.
+Defined.
+
+Lemma transpose_if_lt_Sn : forall x l n HSn, @transpose_if_lt_Sn_prop x l n HSn.
+  unfold transpose_if_lt_Sn_prop.
+  
+
 Lemma twice_transpose_if_lt : forall l n, twice_transpose_if_ltRT l n.
 Proof.
   unfold twice_transpose_if_ltRT.
-  refine (fix F l n : twice_transpose_if_ltRT l n := _).
+  refine (fix F l : forall n, twice_transpose_if_ltRT l n := _).
+  refine (match l with
+          | [] => _
+          | [x] => _
+          | (x::y::xs) => _
+          end).
+  - intros n. exfalso.
+    apply (no_emptyT n).
+  - intros n. exfalso.
+    apply (no_singleT n).
+  - simpl. unfold twice_transpose_if_ltRT. intros [n Hn]. destruct n. {
+    unfold transpose_if_lt at 1. unfold transpose_if_lt at 1. simpl.
+    destruct (Nat.ltb_spec x y).
+    + unfold transpose_if_lt. simpl. destruct (Nat.ltb_spec y x); crush.
+    + unfold transpose_if_lt. simpl. destruct (Nat.ltb_spec x y); crush. }
+  { 
+  
   unfold twice_transpose_if_ltRT.
   destruct n as [n Hn].
+  refine (match l with
+          | [] => _
+          | [x] => _
+          | (x::y::xs) => _
+          end).
+    
+
+  
   refine ((match l as m return (l = m -> _) with
     | [] => _
     | [x] => _
@@ -286,7 +399,11 @@ Proof.
     end) eq_refl).
   - intros. exfalso. assert (2 <= length (l)); crush.
   - intros. exfalso. assert (2 <= length (l)); crush.
-  - refine ((match n as m return (n = m -> _) with 
+  - 
+
+
+
+    refine ((match n as m return (n = m -> _) with 
       | 0 => _
       | S n' => _
       end) eq_refl).
