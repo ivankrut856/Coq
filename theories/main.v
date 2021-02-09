@@ -133,36 +133,38 @@ Qed. *)
 Notation "[[ x ]]" := (exist _ x _).
 Notation "[[ x | P ]]" := (exist _ x P).
 
-Fixpoint transpose_if_lt (l : list nat) (i : BNat (pred (length l))) : list nat.
-  generalize i; clear i.
-  refine (match l with | [] => _ | [x] => _ | (x::y::xs) => _ end).
-  - simpl. intros i. exfalso. apply (NoBNatZero i).
-  - simpl. intros i. exfalso. apply (NoBNatZero i).
-  - intros i. simpl in i.
-    refine ((match i in BNat (S n) return (
-                    match (S n) with | 0 => IDProp | S n' => n = (length xs) -> list nat end)
-             with
-             | BZero n' =>  fun Heq => _
-             | BSucc n' i' => fun Heq => _
-             end) eq_refl).
-    + exact (if (x <? y) then y :: x :: xs else x :: y :: xs).
-    + subst n'.
-      exact (x :: (transpose_if_lt (y::xs) i')).
-Defined.
+Program Fixpoint transpose_if_lt (l : list nat) (i : BNat (pred (length l))) : list nat :=
+  match l with
+  | [] | [_] => _
+  | x::y::xs =>
+    match i with
+    | BZero _   => if (x <? y) then y :: x :: xs else x :: y :: xs
+    | BSucc _ i =>
+      x :: (transpose_if_lt (y::xs) i)
+    end
+  end.
+Next Obligation. inversion i. Defined.
+Next Obligation. inversion i. Defined.
+(* Next Obligation. *)
+(*   intros i. simpl in i. *)
+(*   refine ((match i in BNat (S n) return ( *)
+(*                    match (S n) with | 0 => IDProp | S n' => n = (length xs) -> list nat end) *)
+(*            with *)
+(*            | BZero n' =>  fun Heq => _ *)
+(*            | BSucc n' i' => fun Heq => _ *)
+(*            end) eq_refl). *)
+(*   + exact (if (x <? y) then y :: x :: xs else x :: y :: xs). *)
+(*   + subst n'. *)
+(*     exact (x :: (transpose_if_lt (y::xs) i')). *)
+(* Defined. *)
 
 Print transpose_if_lt.
 
+Lemma transpose_if_lt_Sn (x y : nat) (l : list nat)
+           (n : BNat (pred (length (y::l)))) :
+  transpose_if_lt (x::y::l) (BSucc n) = x :: (transpose_if_lt (y::l) n).
+Proof. reflexivity. Qed.
 
-Definition transpose_if_lt_Sn_prop : forall (x y : nat) (l : list nat)
-                                            (n : BNat (pred (length (y::l)))), Prop.
-  intros.
-  exact (transpose_if_lt (x::y::l) (BSucc n) = x :: (transpose_if_lt (y::l) n)).
-Defined.
-
-Lemma transpose_if_lt_Sn : forall x y l n, @transpose_if_lt_Sn_prop x y l n.
-  unfold transpose_if_lt_Sn_prop.
-  reflexivity.
-Qed.
 (* 
 Definition transpose_if_lt (l : list nat) (i:BNat (pred (length l))) : list nat.
   destruct i as [i Hi].
@@ -279,8 +281,8 @@ Definition pi_braid (b : free_braidlike_monoid) : braid_perm.
   { trivial. }
   Unshelve.
   refine (match b with | [] => _ | (x::xs) => _ end).
-  - exact (ini).
-  - exact (pi_braid_sup xs (transpose_braid ini x)).
+  { exact ini. }
+  exact (pi_braid_sup xs (transpose_braid ini x)).
 Defined.
 
 Print pi_braid.
@@ -289,20 +291,62 @@ Notation "'fbm'" := free_braidlike_monoid.
 
 Notation "x <- e1 ;; e2" := (match e1 with [[x]] => e2 end) (at level 100).
 
-Definition twice_transpose_if_ltRT (l : list nat) (n : BNat (pred (length l))) : Prop.
-  remember (transpose_if_lt l n) as f_once.
-  assert (length l = length f_once).
-  { subst f_once. apply eq_sym. apply transpose_if_lt_len. }
-  refine ((match (eq_sym H) in (_ = len) return (BNat (pred len) -> _) with | eq_refl => _ end) n).
-  intros n'.
-  remember (transpose_if_lt f_once n') as f_twice.
-  exact (f_once = f_twice).
+Program Definition twice_transpose_if_ltRT (l : list nat) (n : BNat (pred (length l)))
+  : Prop :=
+  let f_once := transpose_if_lt l n in
+  f_once = transpose_if_lt f_once n.
+  (* let f_twice := transpose_if_lt f_once n in *)
+  (* f_once = f_twice. *)
+Next Obligation.
+  apply f_equal_pred. rewrite transpose_if_lt_len. auto.
 Defined.
 
 Print twice_transpose_if_ltRT.
 
+Locate "<?".
+
 Lemma twice_transpose_if_lt l n : twice_transpose_if_ltRT l n.
 Proof.
+  generalize dependent n. 
+  apply transpose_if_lt_ind; intros.
+  2: { red. simpl in *.
+       unfold twice_transpose_if_ltRT_obligation_1.
+       simpl in *.
+       assert (length (transpose_if_lt (y :: l0) n) = S (length l0)) as AA.
+       { admit. }
+       rewrite AA.
+
+       2: admit.
+       rewrite <- eq_rect_eq.
+
+       rewrite rew_const.
+       replace (eq_rect (S (length l0)) (fun H0 : nat => BNat H0) (BSucc n)
+                        (length (transpose_if_lt (y :: l0) n))
+                        (twice_transpose_if_ltRT_obligation_1 (x :: y :: l0) (BSucc n)))
+               with (BSucc n).
+
+rewrite transpose_if_lt_Sn.
+
+
+  { red. simpl in *. unfold transpose_if_lt.
+
+  generalize dependent n. induction l.
+  { inversion n. }
+  intros. red.
+
+  inv n.
+  {
+
+
+  apply transpose_if_lt_ind; intros.
+  { red. simpl in *. unfold transpose_if_lt.
+
+
+destruct (classic (x <? y)).
+
+
+destruct (Nat.ltb_spec x y).
+
   unfold twice_transpose_if_ltRT.
   generalize l n; clear l n.
   apply transpose_if_lt_ind.
